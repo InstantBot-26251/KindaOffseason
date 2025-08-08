@@ -25,12 +25,17 @@ public class opencv extends LinearOpMode {
     double width = 0;
 
     private OpenCvCamera controlHubCam;  // Use OpenCvCamera class from FTC SDK
-    private static final int CAMERA_WIDTH = 640; // width  of wanted camera resolution
+    private static final int CAMERA_WIDTH = 640; // width of wanted camera resolution
     private static final int CAMERA_HEIGHT = 360; // height of wanted camera resolution
 
     // Calculate the distance using the formula
     public static final double objectWidthInRealWorldUnits = 3.75;  // Replace with the actual width of the object in real-world units
     public static final double focalLength = 728;  // Replace with the focal length of the camera in pixels
+
+    // Telemetry flags
+    private boolean detectedYellow = false;
+    private boolean detectedBlue = false;
+    private boolean detectedRed = false;
 
     @Override
     public void runOpMode() {
@@ -43,7 +48,14 @@ public class opencv extends LinearOpMode {
 
         while (opModeIsActive()) {
             telemetry.addData("Coordinate", "(" + (int) cX + ", " + (int) cY + ")");
-            telemetry.addData("Distance in Inch", (getDistance(width)));
+            telemetry.addData("Distance in Inch", getDistance(width));
+
+            String detectedColors = "";
+            if (detectedYellow) detectedColors += "Yellow ";
+            if (detectedBlue) detectedColors += "Blue ";
+            if (detectedRed) detectedColors += "Red ";
+            telemetry.addData("Detected Colors", detectedColors.isEmpty() ? "None" : detectedColors);
+
             telemetry.update();
         }
 
@@ -57,33 +69,55 @@ public class opencv extends LinearOpMode {
         controlHubCam = OpenCvCameraFactory.getInstance().createWebcam(
                 hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
 
-        controlHubCam.setPipeline(new YellowBlobDetectionPipeline());
+        controlHubCam.setPipeline(new ColorBlobDetectionPipeline());
 
         controlHubCam.openCameraDevice();
         controlHubCam.startStreaming(CAMERA_WIDTH, CAMERA_HEIGHT, OpenCvCameraRotation.UPRIGHT);
     }
 
-    class YellowBlobDetectionPipeline extends OpenCvPipeline {
+    class ColorBlobDetectionPipeline extends OpenCvPipeline {
         @Override
         public Mat processFrame(Mat input) {
+            detectedYellow = detectYellow(input);
+            detectedBlue = detectBlue(input);
+            detectedRed = detectRed(input);
+
+            return input;
+        }
+
+        private boolean detectYellow(Mat input) {
             Mat hsvFrame = new Mat();
             Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
 
-            // === Yellow Detection ===
-            Scalar lowerYellow = new Scalar(20, 100, 100);
-            Scalar upperYellow = new Scalar(30, 255, 255);
+            Scalar lowerYellow = new Scalar(15, 100, 100);
+            Scalar upperYellow = new Scalar(35, 255, 255);
             Mat yellowMask = new Mat();
             Core.inRange(hsvFrame, lowerYellow, upperYellow, yellowMask);
-            processColorBlob(yellowMask, input, new Scalar(0, 255, 255));
 
-            // === Blue Detection ===
+            // Optional: overlay mask for debugging (uncomment to enable)
+            // Mat maskBGR = new Mat();
+            // Imgproc.cvtColor(yellowMask, maskBGR, Imgproc.COLOR_GRAY2BGR);
+            // Core.addWeighted(input, 1.0, maskBGR, 0.5, 0.0, input);
+
+            return processColorBlob(yellowMask, input, new Scalar(0, 255, 255));
+        }
+
+        private boolean detectBlue(Mat input) {
+            Mat hsvFrame = new Mat();
+            Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
+
             Scalar lowerBlue = new Scalar(100, 150, 0);
             Scalar upperBlue = new Scalar(140, 255, 255);
             Mat blueMask = new Mat();
             Core.inRange(hsvFrame, lowerBlue, upperBlue, blueMask);
-            processColorBlob(blueMask, input, new Scalar(255, 0, 0));
 
-            // === Red Detection ===
+            return processColorBlob(blueMask, input, new Scalar(255, 0, 0));
+        }
+
+        private boolean detectRed(Mat input) {
+            Mat hsvFrame = new Mat();
+            Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
+
             Scalar lowerRed1 = new Scalar(0, 120, 70);
             Scalar upperRed1 = new Scalar(10, 255, 255);
             Scalar lowerRed2 = new Scalar(170, 120, 70);
@@ -94,12 +128,11 @@ public class opencv extends LinearOpMode {
             Core.inRange(hsvFrame, lowerRed2, upperRed2, redMask2);
             Mat redMask = new Mat();
             Core.addWeighted(redMask1, 1.0, redMask2, 1.0, 0.0, redMask);
-            processColorBlob(redMask, input, new Scalar(0, 0, 255));
 
-            return input;
+            return processColorBlob(redMask, input, new Scalar(0, 0, 255));
         }
 
-        private void processColorBlob(Mat mask, Mat input, Scalar color) {
+        private boolean processColorBlob(Mat mask, Mat input, Scalar color) {
             Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(5, 5));
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, kernel);
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, kernel);
@@ -110,7 +143,7 @@ public class opencv extends LinearOpMode {
 
             MatOfPoint largestContour = null;
             double maxArea = 0;
-            double minArea = 1000;
+            double minArea = 500;  // Lowered from 1000 for better small object detection
 
             for (MatOfPoint contour : contours) {
                 double area = Imgproc.contourArea(contour);
@@ -140,7 +173,11 @@ public class opencv extends LinearOpMode {
                 Imgproc.putText(input, distanceLabel, new Point(cX + 10, cY + 60), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
 
                 Imgproc.circle(input, new Point(cX, cY), 5, color, -1);
+
+                return true; // Detected blob of this color
             }
+
+            return false; // No blob detected
         }
     }
 
