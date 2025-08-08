@@ -1,4 +1,4 @@
-// NEW VERSION
+// NEW VERSION 1 ultra pro max
 
 package org.firstinspires.ftc.teamcode;
 
@@ -97,8 +97,8 @@ public class opencv extends LinearOpMode {
             Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
 
             // Yellow detection
-            Scalar lowerYellow = new Scalar(197, 255, 255);
-            Scalar upperYellow = new Scalar(0, 128, 139);
+            Scalar lowerYellow = new Scalar(170, 255, 255);
+            Scalar upperYellow = new Scalar(0, 204, 255);
             Mat yellowMask = new Mat();
             Core.inRange(hsvFrame, lowerYellow, upperYellow, yellowMask);
             detectedYellow = processColorBlob(yellowMask, input, new Scalar(0, 255, 255));
