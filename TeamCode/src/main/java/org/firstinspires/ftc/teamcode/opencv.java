@@ -1,3 +1,5 @@
+// NEW VERSION
+
 package org.firstinspires.ftc.teamcode;
 
 import com.acmerobotics.dashboard.FtcDashboard;
@@ -20,22 +22,16 @@ import java.util.List;
 @TeleOp(name = "OpenCV Testing")
 public class opencv extends LinearOpMode {
 
-    double cX = 0;
-    double cY = 0;
-    double width = 0;
+    private OpenCvCamera controlHubCam;
+    private static final int CAMERA_WIDTH = 640;
+    private static final int CAMERA_HEIGHT = 360;
 
-    private OpenCvCamera controlHubCam;  // Use OpenCvCamera class from FTC SDK
-    private static final int CAMERA_WIDTH = 640; // width of wanted camera resolution
-    private static final int CAMERA_HEIGHT = 360; // height of wanted camera resolution
+    // Real-world object width and camera focal length for distance calculation
+    public static final double objectWidthInRealWorldUnits = 3.75;  // inches
+    public static final double focalLength = 728;  // pixels
 
-    // Calculate the distance using the formula
-    public static final double objectWidthInRealWorldUnits = 3.75;  // Replace with the actual width of the object in real-world units
-    public static final double focalLength = 728;  // Replace with the focal length of the camera in pixels
-
-    // Telemetry flags
-    private boolean detectedYellow = false;
-    private boolean detectedBlue = false;
-    private boolean detectedRed = false;
+    // Pipeline instance to access detection data
+    private ColorBlobDetectionPipeline pipeline;
 
     @Override
     public void runOpMode() {
@@ -47,15 +43,19 @@ public class opencv extends LinearOpMode {
         waitForStart();
 
         while (opModeIsActive()) {
-            telemetry.addData("Coordinate", "(" + (int) cX + ", " + (int) cY + ")");
-            telemetry.addData("Distance in Inch", getDistance(width));
-
             String detectedColors = "";
-            if (detectedYellow) detectedColors += "Yellow ";
-            if (detectedBlue) detectedColors += "Blue ";
-            if (detectedRed) detectedColors += "Red ";
-            telemetry.addData("Detected Colors", detectedColors.isEmpty() ? "None" : detectedColors);
+            if(pipeline.detectedYellow) {
+                detectedColors += "Yellow (" + (int)pipeline.yellowCX + ", " + (int)pipeline.yellowCY + ") ";
+            }
+            if(pipeline.detectedBlue) {
+                detectedColors += "Blue (" + (int)pipeline.blueCX + ", " + (int)pipeline.blueCY + ") ";
+            }
+            if(pipeline.detectedRed) {
+                detectedColors += "Red (" + (int)pipeline.redCX + ", " + (int)pipeline.redCY + ") ";
+            }
+            if(detectedColors.isEmpty()) detectedColors = "None";
 
+            telemetry.addData("Detected Colors", detectedColors);
             telemetry.update();
         }
 
@@ -69,55 +69,64 @@ public class opencv extends LinearOpMode {
         controlHubCam = OpenCvCameraFactory.getInstance().createWebcam(
                 hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
 
-        controlHubCam.setPipeline(new ColorBlobDetectionPipeline());
+        pipeline = new ColorBlobDetectionPipeline();
+        controlHubCam.setPipeline(pipeline);
 
         controlHubCam.openCameraDevice();
         controlHubCam.startStreaming(CAMERA_WIDTH, CAMERA_HEIGHT, OpenCvCameraRotation.UPRIGHT);
     }
 
+    // Pipeline class for color blob detection
     class ColorBlobDetectionPipeline extends OpenCvPipeline {
+
+        // Per color detected info:
+        public double yellowCX = -1, yellowCY = -1, yellowWidth = 0;
+        public double blueCX = -1, blueCY = -1, blueWidth = 0;
+        public double redCX = -1, redCY = -1, redWidth = 0;
+
+        public boolean detectedYellow = false;
+        public boolean detectedBlue = false;
+        public boolean detectedRed = false;
+
+        // Temporary vars to pass info back from processColorBlob
+        private double tempCX, tempCY, tempWidth;
+
         @Override
         public Mat processFrame(Mat input) {
-            detectedYellow = detectYellow(input);
-            detectedBlue = detectBlue(input);
-            detectedRed = detectRed(input);
-
-            return input;
-        }
-
-        private boolean detectYellow(Mat input) {
             Mat hsvFrame = new Mat();
             Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
 
-            Scalar lowerYellow = new Scalar(15, 100, 100);
-            Scalar upperYellow = new Scalar(35, 255, 255);
+            // Yellow detection
+            Scalar lowerYellow = new Scalar(197, 255, 255);
+            Scalar upperYellow = new Scalar(0, 128, 139);
             Mat yellowMask = new Mat();
             Core.inRange(hsvFrame, lowerYellow, upperYellow, yellowMask);
+            detectedYellow = processColorBlob(yellowMask, input, new Scalar(0, 255, 255));
+            if (detectedYellow) {
+                yellowCX = tempCX;
+                yellowCY = tempCY;
+                yellowWidth = tempWidth;
+            } else {
+                yellowCX = yellowCY = -1;
+                yellowWidth = 0;
+            }
 
-            // Optional: overlay mask for debugging (uncomment to enable)
-            // Mat maskBGR = new Mat();
-            // Imgproc.cvtColor(yellowMask, maskBGR, Imgproc.COLOR_GRAY2BGR);
-            // Core.addWeighted(input, 1.0, maskBGR, 0.5, 0.0, input);
-
-            return processColorBlob(yellowMask, input, new Scalar(0, 255, 255));
-        }
-
-        private boolean detectBlue(Mat input) {
-            Mat hsvFrame = new Mat();
-            Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
-
+            // Blue detection
             Scalar lowerBlue = new Scalar(100, 150, 0);
             Scalar upperBlue = new Scalar(140, 255, 255);
             Mat blueMask = new Mat();
             Core.inRange(hsvFrame, lowerBlue, upperBlue, blueMask);
+            detectedBlue = processColorBlob(blueMask, input, new Scalar(255, 0, 0));
+            if (detectedBlue) {
+                blueCX = tempCX;
+                blueCY = tempCY;
+                blueWidth = tempWidth;
+            } else {
+                blueCX = blueCY = -1;
+                blueWidth = 0;
+            }
 
-            return processColorBlob(blueMask, input, new Scalar(255, 0, 0));
-        }
-
-        private boolean detectRed(Mat input) {
-            Mat hsvFrame = new Mat();
-            Imgproc.cvtColor(input, hsvFrame, Imgproc.COLOR_BGR2HSV);
-
+            // Red detection (two HSV ranges merged)
             Scalar lowerRed1 = new Scalar(0, 120, 70);
             Scalar upperRed1 = new Scalar(10, 255, 255);
             Scalar lowerRed2 = new Scalar(170, 120, 70);
@@ -128,8 +137,17 @@ public class opencv extends LinearOpMode {
             Core.inRange(hsvFrame, lowerRed2, upperRed2, redMask2);
             Mat redMask = new Mat();
             Core.addWeighted(redMask1, 1.0, redMask2, 1.0, 0.0, redMask);
+            detectedRed = processColorBlob(redMask, input, new Scalar(0, 0, 255));
+            if (detectedRed) {
+                redCX = tempCX;
+                redCY = tempCY;
+                redWidth = tempWidth;
+            } else {
+                redCX = redCY = -1;
+                redWidth = 0;
+            }
 
-            return processColorBlob(redMask, input, new Scalar(0, 0, 255));
+            return input;
         }
 
         private boolean processColorBlob(Mat mask, Mat input, Scalar color) {
@@ -143,7 +161,7 @@ public class opencv extends LinearOpMode {
 
             MatOfPoint largestContour = null;
             double maxArea = 0;
-            double minArea = 500;  // Lowered from 1000 for better small object detection
+            double minArea = 500; // Adjust as needed
 
             for (MatOfPoint contour : contours) {
                 double area = Imgproc.contourArea(contour);
@@ -157,13 +175,13 @@ public class opencv extends LinearOpMode {
                 Imgproc.drawContours(input, contours, contours.indexOf(largestContour), color, 2);
 
                 Rect boundingRect = Imgproc.boundingRect(largestContour);
-                width = boundingRect.width;
+                double width = boundingRect.width;
 
                 Moments moments = Imgproc.moments(largestContour);
-                cX = moments.get_m10() / moments.get_m00();
-                cY = moments.get_m01() / moments.get_m00();
+                double cX = moments.get_m10() / moments.get_m00();
+                double cY = moments.get_m01() / moments.get_m00();
 
-                String label = "(" + (int) cX + ", " + (int) cY + ")";
+                String label = "(" + (int)cX + ", " + (int)cY + ")";
                 Imgproc.putText(input, label, new Point(cX + 10, cY), Imgproc.FONT_HERSHEY_COMPLEX, 0.5, color, 2);
 
                 String widthLabel = "Width: " + (int) width + " pixels";
@@ -174,10 +192,15 @@ public class opencv extends LinearOpMode {
 
                 Imgproc.circle(input, new Point(cX, cY), 5, color, -1);
 
-                return true; // Detected blob of this color
+                // Save detected info to temp vars for reading in processFrame
+                tempCX = cX;
+                tempCY = cY;
+                tempWidth = width;
+
+                return true;
             }
 
-            return false; // No blob detected
+            return false;
         }
     }
 
